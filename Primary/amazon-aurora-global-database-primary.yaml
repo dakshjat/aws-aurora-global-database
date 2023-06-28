@@ -1,0 +1,331 @@
+---
+AWSTemplateFormatVersion: 2010-09-09
+Description: Amazon RDS for Oracle Cross-region Read Replica
+Parameters:
+  Name:
+    Type: String
+    Description: Application Name
+  Environment:
+    Type: String
+    Description: Application Environment Name
+  VpcId:
+    Type: String
+  SubnetId1:
+    Type: String
+    Description: Subnet ID for Subnet Group
+  SubnetId2:
+    Type: String
+    Description: Subnet ID for Subnet Group
+  MasterUsername:
+    Description: The name of the master user for the DB cluster.
+    Type: String
+    Default: pgmaster
+  DatabaseName:
+    Description: The name of database.
+    Type: String
+    Default: mydb
+  Port:
+    Description: TCP/IP port for the database
+    Type: String
+    Default: 5432
+  DBInstanceClass:
+    Description: The compute and memory capacity of the DB instance
+    Type: String
+    Default: db.r5.large
+  BackupRetentionPeriod:
+    Description: The number of days for which automated backups are retained
+    Type: String
+    Default: 7
+  PreferredBackupWindow:
+    Description: The daily time range during which automated backups are created
+    Type: String
+    Default: "00:00-02:00"
+  PreferredMaintenanceWindow:
+    Description: The weekly time range during which system maintenance can occur (in UTC)
+    Type: String
+    Default: "Sun:03:00-Sun:04:00"
+  DeletionProtection:
+    Description: Enable deletion protection
+    Type: String
+    Default: true
+  AllowMajorVersionUpgrade:
+    Description: Allow major version upgrades
+    Type: String
+    Default: false
+  AutoMinorVersionUpgrade:
+    Description: Allow major version upgrades during the maintenance window
+    Type: String
+    Default: true
+  PerformanceInsightsRetentionPeriod:
+    Description: The number of days to retain Performance Insights data
+    Type: String
+    Default: 7
+  MonitoringInterval:
+    Description: The interval between points when Enhanced Monitoring metrics are collected for the DB instance (in seconds)
+    Type: String
+    Default: 1
+  EmailEndpoint:
+    Type: String
+    Description: Email for Aurora Event Notification
+
+Resources:
+  VpcSecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupName: !Sub '${Environment}-${Name}-sg'
+      GroupDescription: !Sub '${Environment}-${Name} Security Group'
+      SecurityGroupIngress:
+        - Description: !Sub 'Allow traffic from app subnet on DB port ${Port}'
+          IpProtocol: tcp
+          FromPort: !Ref Port
+          ToPort: !Ref Port
+          CidrIp: 10.0.0.0/24
+      SecurityGroupEgress:
+        - CidrIp: 0.0.0.0/0
+          Description: Allow all outbound traffic by default
+          IpProtocol: '-1'
+      VpcId: !Ref VpcId
+  SubnetGroup:
+    Type: "AWS::RDS::DBSubnetGroup"
+    Properties:
+      DBSubnetGroupName: !Sub '${Environment}-${Name}-subgroup'
+      DBSubnetGroupDescription: !Sub '${Environment}-${Name} Subnet Group'
+      SubnetIds:
+        - !Ref SubnetId1
+        - !Ref SubnetId2
+  KMSKey:
+    Type: 'AWS::KMS::Key'
+    Properties:
+      KeyPolicy:
+        Version: 2012-10-17
+        Statement:
+          - Action: 'kms:*'
+            Effect: Allow
+            Principal:
+              AWS: !Sub 'arn:aws:iam::${AWS::AccountId}:root'
+            Resource: '*'
+          - Action:
+            - 'kms:Encrypt'
+            - 'kms:Decrypt'
+            - 'kms:ReEncrypt*'
+            - 'kms:GenerateDataKey*'
+            - 'kms:CreateGrant'
+            - 'kms:ListGrants'
+            - 'kms:DescribeKey'
+            Effect: Allow
+            Principal:
+              AWS: '*'
+            Resource: '*'
+            Condition:
+              StringEquals:
+                'kms:CallerAccount': !Ref 'AWS::AccountId'
+                'kms:ViaService': !Sub 'rds.${AWS::Region}.amazonaws.com'
+      Description: !Sub 'Aurora ${Environment}-${Name} KMS'
+      Enabled: true
+      EnableKeyRotation: true
+  KMSKeyAlias:
+      Type: 'AWS::KMS::Alias'
+      Properties:
+        AliasName: !Sub 'alias/${Environment}-${Name}-kms'
+        TargetKeyId: !Ref KMSKey
+  ParameterGroup:
+    Type: AWS::RDS::DBClusterParameterGroup
+    Properties:
+      DBClusterParameterGroupName: !Sub '${Environment}-${Name}-pg'
+      Description: Parameter group for Aurora DB
+      Family: aurora-postgresql14
+      Parameters:
+        log_statement: all
+  EnhancedMonitoringRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${Environment}-${Name}-enhanced-monitoring-role'
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - monitoring.rds.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonRDSEnhancedMonitoringRole
+  MasterUser:
+    Type: 'AWS::SecretsManager::Secret'
+    Properties:
+      Name: !Sub '/rds/${Environment}/${Name}-masterusername'
+      Description: 'Aurora database master username'
+      SecretString: !Ref MasterUsername
+  MasterUserPassword:
+    Type: 'AWS::SecretsManager::Secret'
+    Properties:
+      Name: !Sub '/rds/${Environment}/${Name}-masteruserpassword'
+      Description: 'Aurora database master user password'
+      GenerateSecretString:
+        PasswordLength: 16
+        ExcludePunctuation: true
+  Cluster:
+    Type: "AWS::RDS::DBCluster"
+    Properties:
+      Engine: aurora-postgresql
+      EngineVersion: 14.6
+      MasterUsername: !Ref MasterUsername
+      MasterUserPassword: !Join ['', ['{{resolve:secretsmanager:', !Ref MasterUserPassword, '}}']]
+      DBClusterIdentifier: !Sub '${Environment}-${Name}-cluster'
+      DatabaseName: !Ref DatabaseName
+      Port: !Ref Port
+      VpcSecurityGroupIds:
+        - !Ref VpcSecurityGroup
+      DBSubnetGroupName: !Ref SubnetGroup
+      DBClusterParameterGroupName: !Ref ParameterGroup
+      StorageEncrypted: true
+      KmsKeyId: !Ref KMSKey
+      EnableCloudwatchLogsExports:
+        - 'postgresql'
+      DeletionProtection: !Ref DeletionProtection
+      PreferredBackupWindow: !Ref PreferredBackupWindow
+      BackupRetentionPeriod: !Ref BackupRetentionPeriod
+      PreferredMaintenanceWindow: !Ref PreferredMaintenanceWindow
+      Tags:
+        - Key: Name
+          Value: !Sub '${Environment}-${Name}-cluster'
+  GlobalCluster:
+    Type: 'AWS::RDS::GlobalCluster'
+    Properties:
+      GlobalClusterIdentifier: !Sub '${Environment}-${Name}-gb-cluster'
+      SourceDBClusterIdentifier: !Ref Cluster
+  DBInstance:
+    Type: "AWS::RDS::DBInstance"
+    Properties:
+      Engine: aurora-postgresql
+      DBClusterIdentifier: !Ref Cluster
+      DBInstanceIdentifier: !Sub '${Environment}-${Name}-instance'
+      DBInstanceClass: !Ref DBInstanceClass
+      PubliclyAccessible: false
+      AllowMajorVersionUpgrade: !Ref AllowMajorVersionUpgrade
+      AutoMinorVersionUpgrade: !Ref AutoMinorVersionUpgrade
+      EnablePerformanceInsights: true
+      PerformanceInsightsKMSKeyId: !Ref KMSKey
+      PerformanceInsightsRetentionPeriod: 7
+      MonitoringInterval: !Ref MonitoringInterval
+      MonitoringRoleArn: !GetAtt EnhancedMonitoringRole.Arn
+      PreferredMaintenanceWindow: !Ref PreferredMaintenanceWindow
+      Tags:
+        - Key: Name
+          Value: !Sub '${Environment}-${Name}-db'
+  SNSKMSKey:
+    Type: 'AWS::KMS::Key'
+    Properties:
+      KeyPolicy:
+        Version: 2012-10-17
+        Statement:
+          - Action: 'kms:*'
+            Effect: Allow
+            Principal:
+              AWS: !Sub 'arn:aws:iam::${AWS::AccountId}:root'
+            Resource: '*'
+          - Action:
+            - 'kms:Decrypt*'
+            - 'kms:GenerateDataKey*'
+            Effect: Allow
+            Principal:
+            Principal:
+              Service: ["events.rds.amazonaws.com"]
+            Resource: '*'
+          - Action:
+            - 'kms:Decrypt*'
+            - 'kms:GenerateDataKey*'
+            Effect: Allow
+            Principal:
+              Service: ["sns.amazonaws.com"]
+            Resource: '*'
+      Description: Amazon Aurora Events KMS
+      Enabled: true
+      EnableKeyRotation: true
+  SNSKMSKeyAlias:
+      Type: 'AWS::KMS::Alias'
+      Properties:
+        AliasName: !Sub 'alias/${Environment}-${Name}-sns-kms'
+        TargetKeyId: !Ref SNSKMSKey
+  SNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: !Sub '${Environment}-${Name}-sns'
+      KmsMasterKeyId: !Ref SNSKMSKey
+      TopicName: !Sub '${Environment}-${Name}-sns'
+  SNSTopicPolicy:
+    Type: AWS::SNS::TopicPolicy
+    Properties:
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Sid: default
+          Effect: Allow
+          Principal:
+            AWS: "*"
+          Action:
+          - sns:GetTopicAttributes
+          - sns:SetTopicAttributes
+          - sns:AddPermission
+          - sns:RemovePermission
+          - sns:DeleteTopic
+          - sns:Subscribe
+          - sns:ListSubscriptionsByTopic
+          - sns:Publish
+          Resource: !Ref SNSTopic
+          Condition:
+            StringEquals:
+              "AWS:SourceOwner": !Sub "AWS::AccountId"
+        - Sid: rds-events-allow-publish
+          Effect: Allow
+          Principal:
+            Service: ["events.rds.amazonaws.com"]
+          Action:
+          - sns:Publish
+          Resource: !Ref SNSTopic
+      Topics:
+        - !Ref SNSTopic
+  SNSTopicSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Endpoint: !Ref EmailEndpoint
+      Protocol: Email
+      TopicArn: !Ref SNSTopic
+  ClusterEventNotificationInstance:
+    Type: AWS::RDS::EventSubscription
+    Properties:
+      Enabled: true
+      EventCategories:
+      - failover
+      - failure
+      - maintenance
+      - configuration change
+      SnsTopicArn: !Ref SNSTopic
+      SourceType: db-cluster
+      SourceIds:
+        - !Ref Cluster
+      SubscriptionName: !Sub '${Environment}-${Name}-cluster'
+    DependsOn:
+      - Cluster
+  DBEventNotificationInstance:
+    Type: AWS::RDS::EventSubscription
+    Properties:
+      Enabled: true
+      EventCategories:
+      - failover
+      - failure
+      - low storage
+      - maintenance
+      - availability
+      - read replica
+      - recovery
+      - configuration change
+      - notification
+      SnsTopicArn: !Ref SNSTopic
+      SourceType: db-instance
+      SourceIds:
+        - !Ref DBInstance
+      SubscriptionName: !Sub '${Environment}-${Name}-instance'
+    DependsOn:
+      - DBInstance

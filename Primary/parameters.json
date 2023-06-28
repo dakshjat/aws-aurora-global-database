@@ -1,0 +1,22 @@
+{
+    "Parameters": {
+        "Name": "<Name>",
+        "Environment": "<Environment>",
+        "VpcId": "<VpcId>",
+        "SubnetId1": "<SubnetId1>",
+        "SubnetId2": "<SubnetId2>",
+        "MasterUsername": "<MasterUsername>",
+        "DatabaseName": "<DatabaseName>",
+        "Port": "<Port>",
+        "DBInstanceClass": "<DBInstanceClass>",
+        "BackupRetentionPeriod": "<BackupRetentionPeriod>",
+        "PreferredBackupWindow": "<PreferredBackupWindow>",
+        "PreferredMaintenanceWindow": "<PreferredMaintenanceWindow>",
+        "DeletionProtection": "<DeletionProtection>",
+        "AllowMajorVersionUpgrade": "<AllowMajorVersionUpgrade>",
+        "AutoMinorVersionUpgrade": "<AutoMinorVersionUpgrade>",
+        "PerformanceInsightsRetentionPeriod": "<PerformanceInsightsRetentionPeriod>",
+        "MonitoringInterval": "<MonitoringInterval>",
+        "EmailEndpoint": "<EmailEndpoint>"
+    }
+}    
