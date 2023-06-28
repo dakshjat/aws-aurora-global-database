@@ -30,7 +30,6 @@ ___
 * [AWS CLI failover-global-cluster](https://docs.aws.amazon.com/cli/latest/reference/rds/failover-global-cluster.html)
 ___
 
-For more information on Amazon Aurora global databases, visit [Using Amazon Aurora global databases
-](https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/aurora-global-database.html).
+For more information on Amazon Aurora global databases, visit [Using Amazon Aurora global databases](https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/aurora-global-database.html).
 
 For more information on failover in an Amazon Aurora global databases, visit [Working with read replicas for Amazon RDS for Oracle](https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/aurora-global-database-disaster-recovery.html).
