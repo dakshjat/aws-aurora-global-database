@@ -1,6 +1,6 @@
 ---
 AWSTemplateFormatVersion: 2010-09-09
-Description: Amazon RDS for Oracle Cross-region Read Replica
+Description: Amazon Aurora Global Database
 Parameters:
   Name:
     Type: String
